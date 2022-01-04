@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/spacemeshos/go-spacemesh/common/types"
@@ -89,11 +90,10 @@ func TestRerunDistanceVoteCounting(t *testing.T) {
 	}
 	require.NoError(t, tortoise.rerun(ctx))
 
-	for _, block := range blocks {
-		validity, err := s.GetState(0).MeshDB.ContextualValidity(block)
-		require.NoError(t, err)
-		require.True(t, validity, "validity for block %s", block)
-	}
+	validBlocks, err := s.GetState(0).MeshDB.LayerContextuallyValidBlocks(context.TODO(), misverified)
+	require.NoError(t, err)
+	assert.Len(t, validBlocks, numValidBlock)
+	assert.NotContains(t, validBlocks, types.EmptyBlockID)
 
 	last = s.Next()
 	previous, verified, reverted := tortoise.HandleIncomingLayer(ctx, last)
