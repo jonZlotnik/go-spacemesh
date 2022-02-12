@@ -91,6 +91,8 @@ const (
 	LayerFetcher           = "layerFetcher"
 	TimeSyncLogger         = "timesync"
 	SVMLogger              = "SVM"
+	CStateLogger           = "cState"
+	TXHandlerLogger        = "txHandler"
 )
 
 // Cmd is the cobra wrapper for the node, that allows adding parameters to it.
@@ -278,7 +280,8 @@ type App struct {
 	beaconProtocol   *beacon.ProtocolDriver
 	closers          []interface{ Close() }
 	log              log.Log
-	txPool           *txs.TxMempool
+	txPool           *txs.TxPool
+	cState           *txs.ConservativeState
 	svm              *svm.SVM
 	layerFetch       *layerfetcher.Logic
 	ptimesync        *peersync.Sync
@@ -513,15 +516,14 @@ func (app *App) initServices(ctx context.Context,
 		return fmt.Errorf("create mesh DB: %w", err)
 	}
 
-	app.txPool = txs.NewTxMemPool()
-	meshAndPoolProjector := txs.NewMeshAndPoolProjector(mdb, app.txPool)
-
+	app.txPool = txs.NewTxPool(sqlDB)
 	appliedTxs, err := database.NewLDBDatabase(filepath.Join(dbStorepath, "appliedTxs"), 0, 0, lg.WithName("appliedTxs"))
 	if err != nil {
 		return fmt.Errorf("create applied txs DB: %w", err)
 	}
 	app.closers = append(app.closers, appliedTxs)
-	state := svm.New(stateDBStore, appliedTxs, meshAndPoolProjector, app.txPool, app.addLogger(SVMLogger, lg))
+	state := svm.New(stateDBStore, appliedTxs, app.addLogger(SVMLogger, lg))
+	app.cState = txs.NewConservativeState(state, app.txPool, app.addLogger(CStateLogger, lg))
 
 	goldenATXID := types.ATXID(types.HexToHash32(app.Config.GoldenATXID))
 	if goldenATXID == *types.EmptyATXID {
@@ -561,10 +563,10 @@ func (app *App) initServices(ctx context.Context,
 	)
 
 	if mdb.PersistentData() {
-		msh = mesh.NewRecoveredMesh(mdb, atxDB, trtl, app.txPool, state, app.addLogger(MeshLogger, lg))
+		msh = mesh.NewRecoveredMesh(mdb, atxDB, trtl, app.cState, app.addLogger(MeshLogger, lg))
 		go msh.CacheWarmUp(app.Config.LayerAvgSize)
 	} else {
-		msh = mesh.NewMesh(mdb, atxDB, trtl, app.txPool, state, app.addLogger(MeshLogger, lg))
+		msh = mesh.NewMesh(mdb, atxDB, trtl, app.cState, app.addLogger(MeshLogger, lg))
 		if err := state.SetupGenesis(app.Config.Genesis); err != nil {
 			return fmt.Errorf("setup genesis: %w", err)
 		}
@@ -590,8 +592,10 @@ func (app *App) initServices(ctx context.Context,
 		proposals.WithGoldenATXID(goldenATXID),
 		proposals.WithMaxExceptions(trtlCfg.MaxExceptions))
 
-	blockHandller := blocks.NewHandler(fetcherWrapped, msh,
+	blockHandler := blocks.NewHandler(fetcherWrapped, msh,
 		blocks.WithLogger(app.addLogger(BlockHandlerLogger, lg)))
+
+	txHandler := txs.NewTxHandler(app.cState, app.addLogger(TXHandlerLogger, lg))
 
 	dbStores := fetch.LocalDataSource{
 		fetch.BallotDB:   msh.Ballots(),
@@ -603,10 +607,10 @@ func (app *App) initServices(ctx context.Context,
 	}
 	dataHanders := layerfetcher.DataHandlers{
 		ATX:      atxDB,
-		Block:    blockHandller,
+		Block:    blockHandler,
 		Ballot:   proposalListener,
 		Proposal: proposalListener,
-		TX:       state,
+		TX:       txHandler,
 	}
 	layerFetch := layerfetcher.NewLogic(ctx, app.Config.FETCH, poetDb, atxDB, msh, app.host, dataHanders, dbStores, app.addLogger(LayerFetcher, lg))
 	fetcherWrapped.Fetcher = layerFetch
@@ -631,10 +635,9 @@ func (app *App) initServices(ctx context.Context,
 		// TODO: genesisMinerWeight is set to app.Config.SpaceToCommit, because PoET ticks are currently hardcoded to 1
 	}
 
-	blockGen := blocks.NewGenerator(atxDB, msh, blocks.WithConfig(app.Config.REWARD), blocks.WithGeneratorLogger(app.addLogger(BlockGenLogger, lg)))
+	blockGen := blocks.NewGenerator(atxDB, msh, app.cState, blocks.WithConfig(app.Config.REWARD), blocks.WithGeneratorLogger(app.addLogger(BlockGenLogger, lg)))
 	rabbit := app.HareFactory(ctx, sgn, blockGen, nodeID, patrol, newSyncer, msh, proposalDB, beaconProtocol, fetcherWrapped, hOracle, idStore, clock, lg)
 
-	stateAndMeshProjector := txs.NewStateAndMeshProjector(state, msh)
 	proposalBuilder := miner.NewProposalBuilder(
 		ctx,
 		clock.Subscribe(),
@@ -646,8 +649,7 @@ func (app *App) initServices(ctx context.Context,
 		trtl,
 		beaconProtocol,
 		newSyncer,
-		stateAndMeshProjector,
-		app.txPool,
+		app.cState,
 		miner.WithDBPath(dbStorepath),
 		miner.WithMinerID(nodeID),
 		miner.WithTxsPerProposal(app.Config.TxsPerBlock),
@@ -696,7 +698,7 @@ func (app *App) initServices(ctx context.Context,
 		pubsub.ChainGossipHandler(syncHandler, beaconProtocol.HandleFollowingVotes))
 	app.host.Register(proposals.NewProposalProtocol, pubsub.ChainGossipHandler(syncHandler, proposalListener.HandleProposal))
 	app.host.Register(activation.AtxProtocol, pubsub.ChainGossipHandler(syncHandler, atxDB.HandleGossipAtx))
-	app.host.Register(svm.IncomingTxProtocol, pubsub.ChainGossipHandler(syncHandler, state.HandleGossipTransaction))
+	app.host.Register(txs.IncomingTxProtocol, pubsub.ChainGossipHandler(syncHandler, txHandler.HandleGossipTransaction))
 	app.host.Register(activation.PoetProofProtocol, poetListener.HandlePoetProofMessage)
 
 	app.proposalBuilder = proposalBuilder
@@ -845,13 +847,13 @@ func (app *App) startAPIServices(ctx context.Context) {
 
 	// Register the requested services one by one
 	if apiConf.StartDebugService {
-		registerService(grpcserver.NewDebugService(app.mesh, app.host))
+		registerService(grpcserver.NewDebugService(app.mesh, app.cState, app.host))
 	}
 	if apiConf.StartGatewayService {
 		registerService(grpcserver.NewGatewayService(app.host))
 	}
 	if apiConf.StartGlobalStateService {
-		registerService(grpcserver.NewGlobalStateService(app.mesh, app.txPool))
+		registerService(grpcserver.NewGlobalStateService(app.mesh, app.cState))
 	}
 	if apiConf.StartMeshService {
 		registerService(grpcserver.NewMeshService(app.mesh, app.clock, app.Config.LayersPerEpoch, app.Config.P2P.NetworkID, layerDuration, app.Config.LayerAvgSize, app.Config.TxsPerBlock))
@@ -865,7 +867,7 @@ func (app *App) startAPIServices(ctx context.Context) {
 		registerService(grpcserver.NewSmesherService(app.postSetupMgr, app.atxBuilder))
 	}
 	if apiConf.StartTransactionService {
-		registerService(grpcserver.NewTransactionService(app.host, app.mesh, app.txPool, app.syncer))
+		registerService(grpcserver.NewTransactionService(app.host, app.mesh, app.cState, app.syncer))
 	}
 
 	// Now that the services are registered, start the server.

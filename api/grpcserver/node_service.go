@@ -24,7 +24,7 @@ import (
 // data such as node status, software version, errors, etc. It can also be used to start
 // the sync process, or to shut down the node.
 type NodeService struct {
-	Mesh        api.TxAPI
+	Mesh        api.MeshAPI
 	GenTime     api.GenesisTimeAPI
 	PeerCounter api.PeerCounter
 	Syncer      api.Syncer
@@ -38,7 +38,7 @@ func (s NodeService) RegisterService(server *Server) {
 
 // NewNodeService creates a new grpc service using config data.
 func NewNodeService(
-	peers api.PeerCounter, tx api.TxAPI, genTime api.GenesisTimeAPI, syncer api.Syncer, atxapi api.ActivationAPI) *NodeService {
+	peers api.PeerCounter, tx api.MeshAPI, genTime api.GenesisTimeAPI, syncer api.Syncer, atxapi api.ActivationAPI) *NodeService {
 	return &NodeService{
 		Mesh:        tx,
 		GenTime:     genTime,

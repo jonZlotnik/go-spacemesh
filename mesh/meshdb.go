@@ -19,7 +19,6 @@ import (
 	"github.com/spacemeshos/go-spacemesh/sql/layers"
 	"github.com/spacemeshos/go-spacemesh/sql/rewards"
 	"github.com/spacemeshos/go-spacemesh/sql/transactions"
-	"github.com/spacemeshos/go-spacemesh/txs"
 )
 
 const (
@@ -375,90 +374,90 @@ func (m *DB) GetRewardsBySmesherID(smesherID types.NodeID) ([]types.Reward, erro
 	return rewards.FilterBySmesher(m.db, smesherID.ToBytes())
 }
 
-func (m *DB) markTransactionsDeleted(txs ...*types.Transaction) error {
-	for _, tx := range txs {
-		if err := transactions.MarkDeleted(m.db, tx.ID()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+//func (m *DB) markTransactionsDeleted(txs ...*types.Transaction) error {
+//	for _, tx := range txs {
+//		if err := transactions.MarkDeleted(m.db, tx.ID()); err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}
 
-func (m *DB) getAccountPendingTxs(addr types.Address) (*txs.AccountPendingTxs, error) {
-	pending := txs.NewAccountPendingTxs()
-	txs, err := transactions.FilterPending(m.db, addr)
-	if err != nil {
-		return nil, err
-	}
-	for _, tx := range txs {
-		pending.Add(tx.LayerID, &tx.Transaction)
-	}
-	return pending, nil
-}
+//func (m *DB) getAccountPendingTxs(addr types.Address) (*txs.AccountPendingTxs, error) {
+//	pending := txs.NewAccountPendingTxs()
+//	txs, err := transactions.FilterPending(m.db, addr)
+//	if err != nil {
+//		return nil, err
+//	}
+//	for _, tx := range txs {
+//		pending.Add(tx.LayerID, &tx.Transaction)
+//	}
+//	return pending, nil
+//}
 
 // GetProjection returns projection of address.
-func (m *DB) GetProjection(addr types.Address, prevNonce, prevBalance uint64) (uint64, uint64, error) {
-	pending, err := m.getAccountPendingTxs(addr)
-	if err != nil {
-		return 0, 0, err
-	}
-	nonce, balance := pending.GetProjection(prevNonce, prevBalance)
-	return nonce, balance, nil
-}
+//func (m *DB) GetProjection(addr types.Address, prevNonce, prevBalance uint64) (uint64, uint64, error) {
+//	pending, err := m.getAccountPendingTxs(addr)
+//	if err != nil {
+//		return 0, 0, err
+//	}
+//	nonce, balance := pending.GetProjection(prevNonce, prevBalance)
+//	return nonce, balance, nil
+//}
 
 // GetTransactions retrieves a list of txs by their id's.
-func (m *DB) GetTransactions(transactions []types.TransactionID) ([]*types.Transaction, map[types.TransactionID]struct{}) {
-	missing := make(map[types.TransactionID]struct{})
-	txs := make([]*types.Transaction, 0, len(transactions))
-	for _, id := range transactions {
-		if tx, err := m.GetMeshTransaction(id); err != nil {
-			m.With().Warning("could not fetch tx", id, log.Err(err))
-			missing[id] = struct{}{}
-		} else {
-			txs = append(txs, &tx.Transaction)
-		}
-	}
-	return txs, missing
-}
+//func (m *DB) GetTransactions(transactions []types.TransactionID) ([]*types.Transaction, map[types.TransactionID]struct{}) {
+//	missing := make(map[types.TransactionID]struct{})
+//	txs := make([]*types.Transaction, 0, len(transactions))
+//	for _, id := range transactions {
+//		if tx, err := m.GetMeshTransaction(id); err != nil {
+//			m.With().Warning("could not fetch tx", id, log.Err(err))
+//			missing[id] = struct{}{}
+//		} else {
+//			txs = append(txs, &tx.Transaction)
+//		}
+//	}
+//	return txs, missing
+//}
 
 // GetMeshTransactions retrieves list of txs with information in what blocks and layers they are included.
-func (m *DB) GetMeshTransactions(transactions []types.TransactionID) ([]*types.MeshTransaction, map[types.TransactionID]struct{}) {
-	var (
-		missing = map[types.TransactionID]struct{}{}
-		txs     = make([]*types.MeshTransaction, 0, len(transactions))
-	)
-	for _, id := range transactions {
-		tx, err := m.GetMeshTransaction(id)
-		if err != nil {
-			m.With().Warning("could not fetch tx", id, log.Err(err))
-			missing[id] = struct{}{}
-		} else {
-			txs = append(txs, tx)
-		}
-	}
-	return txs, missing
-}
+//func (m *DB) GetMeshTransactions(transactions []types.TransactionID) ([]*types.MeshTransaction, map[types.TransactionID]struct{}) {
+//	var (
+//		missing = map[types.TransactionID]struct{}{}
+//		txs     = make([]*types.MeshTransaction, 0, len(transactions))
+//	)
+//	for _, id := range transactions {
+//		tx, err := m.GetMeshTransaction(id)
+//		if err != nil {
+//			m.With().Warning("could not fetch tx", id, log.Err(err))
+//			missing[id] = struct{}{}
+//		} else {
+//			txs = append(txs, tx)
+//		}
+//	}
+//	return txs, missing
+//}
 
 // GetMeshTransaction retrieves a tx by its id.
-func (m *DB) GetMeshTransaction(id types.TransactionID) (*types.MeshTransaction, error) {
-	return transactions.Get(m.db, id)
-}
+//func (m *DB) GetMeshTransaction(id types.TransactionID) (*types.MeshTransaction, error) {
+//	return transactions.Get(m.db, id)
+//}
 
 // GetTransactionsByDestination retrieves txs by destination in between layers [from, to].
-func (m *DB) GetTransactionsByDestination(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
-	return transactions.FilterByDestination(m.db, from, to, address)
-}
+//func (m *DB) GetTransactionsByDestination(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
+//	return transactions.FilterByDestination(m.db, from, to, address)
+//}
 
 // GetTransactionsByOrigin retrieves txs by origin in beetween layers [from, to].
-func (m *DB) GetTransactionsByOrigin(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
-	return transactions.FilterByOrigin(m.db, from, to, address)
-}
+//func (m *DB) GetTransactionsByOrigin(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
+//	return transactions.FilterByOrigin(m.db, from, to, address)
+//}
 
 // GetTransactionsByAddress retrieves txs for a single address in beetween layers [from, to].
 // Guarantees that transaction will appear exactly once, even if origin and recipient is the same, and in insertion order.
-func (m *DB) GetTransactionsByAddress(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
-	return transactions.FilterByAddress(m.db, from, to, address)
-}
+//func (m *DB) GetTransactionsByAddress(from, to types.LayerID, address types.Address) ([]*types.MeshTransaction, error) {
+//	return transactions.FilterByAddress(m.db, from, to, address)
+//}
 
 // BlocksByValidity classifies a slice of blocks by validity.
 func (m *DB) BlocksByValidity(blocks []*types.Block) ([]*types.Block, []*types.Block) {
@@ -600,7 +599,7 @@ type txFetcher struct {
 func (db *txFetcher) Get(hash []byte) ([]byte, error) {
 	id := types.TransactionID{}
 	copy(id[:], hash)
-	if tx, err := db.m.txPool.Get(id); err == nil && tx != nil {
+	if tx, err := db.m.cState.GetMeshTransaction(id); err == nil && tx != nil {
 		return codec.Encode(tx)
 	}
 	return transactions.GetBlob(db.m.db, id)

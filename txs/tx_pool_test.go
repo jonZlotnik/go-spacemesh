@@ -22,7 +22,7 @@ func getState(types.Address) (uint64, uint64, error) {
 func TestNewTxPoolWithAccounts(t *testing.T) {
 	r := require.New(t)
 
-	pool := NewTxMemPool()
+	pool := NewTxPool()
 	prevNonce := uint64(4)
 	prevBalance := uint64(1000)
 
@@ -63,7 +63,7 @@ func TestNewTxPoolWithAccounts(t *testing.T) {
 func TestTxPoolWithAccounts_GetRandomTxs(t *testing.T) {
 	r := require.New(t)
 
-	pool := NewTxMemPool()
+	pool := NewTxPool()
 	prevNonce := uint64(5)
 	prevBalance := uint64(1000)
 	signer := signing.NewEdSigner()
@@ -122,7 +122,7 @@ func TestGetRandIdxs(t *testing.T) {
 }
 
 func BenchmarkTxPoolWithAccounts(b *testing.B) {
-	pool := NewTxMemPool()
+	pool := NewTxPool()
 
 	const numBatches = 10
 	txBatches := make([][]*types.Transaction, numBatches)
@@ -148,14 +148,14 @@ func BenchmarkTxPoolWithAccounts(b *testing.B) {
 	b.Log(time.Since(start))
 }
 
-func addBatch(pool *TxMempool, txBatch []*types.Transaction, txIDBatch []types.TransactionID, wg *sync.WaitGroup) {
+func addBatch(pool *TxPool, txBatch []*types.Transaction, txIDBatch []types.TransactionID, wg *sync.WaitGroup) {
 	for i, tx := range txBatch {
 		pool.Put(txIDBatch[i], tx)
 	}
 	wg.Done()
 }
 
-func invalidateBatch(pool *TxMempool, txIDBatch []types.TransactionID, wg *sync.WaitGroup) {
+func invalidateBatch(pool *TxPool, txIDBatch []types.TransactionID, wg *sync.WaitGroup) {
 	for _, txID := range txIDBatch {
 		pool.Invalidate(txID)
 	}

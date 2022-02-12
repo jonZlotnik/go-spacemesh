@@ -168,11 +168,24 @@ func SortTransactionIDs(ids []TransactionID) []TransactionID {
 	return ids
 }
 
+type TXState int
+
+const (
+	MEMPOOL TXState = iota
+	PENDING
+	APPLIED
+	// DELETED
+	// NOTE(dshulyak) transaction is marked as deleted, instead of deleting it
+	// to avoid problems with data availability until we handle it properly.
+	DELETED
+)
+
 // MeshTransaction is stored in the mesh and included in the block.
 type MeshTransaction struct {
 	Transaction
 	LayerID LayerID
 	BlockID BlockID
+	State   TXState
 }
 
 // InnerTransaction includes all of a transaction's fields, except the signature (origin and id aren't stored).

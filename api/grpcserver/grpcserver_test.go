@@ -507,7 +507,11 @@ func (a *ActivationAPIMock) UpdatePoETServer(context.Context, string) error {
 }
 
 type MempoolMock struct {
+<<<<<<< Updated upstream
 	// In the real txs.TxMempool struct, there are multiple data structures and they're more complex,
+=======
+	// In the real mempool.TxPool struct, there are multiple data structures and they're more complex,
+>>>>>>> Stashed changes
 	// but we just mock a very simple use case here and only store some of these data
 	poolByAddress map[types.Address]types.TransactionID
 	poolByTxid    map[types.TransactionID]*types.Transaction
@@ -526,10 +530,8 @@ func (m *MempoolMock) Put(id types.TransactionID, tx *types.Transaction) {
 
 // Return a mock estimated nonce and balance that's different than the default, mimicking transactions that are
 // unconfirmed or in the mempool that will update state.
-func (m MempoolMock) GetProjection(types.Address, uint64, uint64) (nonce, balance uint64) {
-	nonce = accountCounter + 1
-	balance = accountBalance + 1
-	return
+func (m MempoolMock) GetProjection(types.Address, uint64, uint64) (uint64, uint64, error) {
+	return accountCounter + 1, accountBalance + 1, nil
 }
 
 func (m MempoolMock) GetTxsByAddress(addr types.Address) (txs []*types.Transaction) {
@@ -3145,11 +3147,19 @@ func TestEventsReceived(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
+<<<<<<< Updated upstream
 	pool := txs.NewTxMemPool()
 	pool.Put(globalTx.ID(), globalTx)
 
 	lg := logtest.New(t).WithName("svm")
 	svm := svm.New(database.NewMemDatabase(), appliedTxsMock{}, &ProjectorMock{}, txs.NewTxMemPool(), lg)
+=======
+	pool := mempool.NewTxPool()
+	pool.Put(globalTx.ID(), globalTx)
+
+	lg := logtest.New(t).WithName("svm")
+	svm := svm.New(database.NewMemDatabase(), appliedTxsMock{}, lg)
+>>>>>>> Stashed changes
 	time.Sleep(100 * time.Millisecond)
 
 	rewards := map[types.Address]uint64{

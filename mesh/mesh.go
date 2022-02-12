@@ -19,11 +19,11 @@ import (
 	"github.com/spacemeshos/go-spacemesh/sql/transactions"
 )
 
-type txMemPool interface {
-	Invalidate(id types.TransactionID)
-	Get(id types.TransactionID) (*types.Transaction, error)
-	Put(id types.TransactionID, tx *types.Transaction)
-}
+//type txMemPool interface {
+//	Invalidate(id types.TransactionID)
+//	Get(id types.TransactionID) (*types.Transaction, error)
+//	Put(id types.TransactionID, tx *types.Transaction)
+//}
 
 // AtxDB holds logic for working with atxs.
 type AtxDB interface {
@@ -37,10 +37,10 @@ type Mesh struct {
 	log.Log
 	*DB
 	AtxDB
-	state
 
-	trtl   tortoise
-	txPool txMemPool
+	trtl tortoise
+	//txPool txMemPool
+	cState conservativeState
 
 	mu sync.Mutex
 	// latestLayer is the latest layer this node had seen from blocks
@@ -56,12 +56,11 @@ type Mesh struct {
 }
 
 // NewMesh creates a new instant of a mesh.
-func NewMesh(db *DB, atxDb AtxDB, trtl tortoise, txPool txMemPool, state state, logger log.Log) *Mesh {
+func NewMesh(db *DB, atxDb AtxDB, trtl tortoise, state conservativeState, logger log.Log) *Mesh {
 	msh := &Mesh{
 		Log:                 logger,
 		trtl:                trtl,
-		txPool:              txPool,
-		state:               state,
+		cState:              state,
 		DB:                  db,
 		AtxDB:               atxDb,
 		nextProcessedLayers: make(map[types.LayerID]struct{}),
@@ -86,8 +85,8 @@ func NewMesh(db *DB, atxDb AtxDB, trtl tortoise, txPool txMemPool, state state, 
 }
 
 // NewRecoveredMesh creates new instance of mesh with recovered mesh data fom database.
-func NewRecoveredMesh(db *DB, atxDb AtxDB, trtl tortoise, txPool txMemPool, state state, logger log.Log) *Mesh {
-	msh := NewMesh(db, atxDb, trtl, txPool, state, logger)
+func NewRecoveredMesh(db *DB, atxDb AtxDB, trtl tortoise, state conservativeState, logger log.Log) *Mesh {
+	msh := NewMesh(db, atxDb, trtl, state, logger)
 
 	latest, err := msh.GetLatestLayer()
 	if err != nil {
@@ -106,12 +105,12 @@ func NewRecoveredMesh(db *DB, atxDb AtxDB, trtl tortoise, txPool txMemPool, stat
 		logger.With().Panic("failed to recover latest verified layer", log.Err(err))
 	}
 	if err = msh.setLatestLayerInState(verified); err != nil {
-		logger.With().Panic("failed to recover latest layer in state", log.Err(err))
+		logger.With().Panic("failed to recover latest layer in conservativeState", log.Err(err))
 	}
 
 	_, err = state.Rewind(msh.LatestLayerInState())
 	if err != nil {
-		logger.With().Panic("failed to load state for layer", msh.LatestLayerInState(), log.Err(err))
+		logger.With().Panic("failed to load conservativeState for layer", msh.LatestLayerInState(), log.Err(err))
 	}
 
 	msh.With().Info("recovered mesh from disk",
@@ -286,7 +285,7 @@ func (msh *Mesh) ProcessLayer(ctx context.Context, layerID types.LayerID) error 
 	if reverted {
 		msh.setLatestLayerInState(oldVerified)
 		if err := msh.revertState(ctx, oldVerified); err != nil {
-			logger.With().Error("failed to revert state, unable to process layer", log.Err(err))
+			logger.With().Error("failed to revert conservativeState, unable to process layer", log.Err(err))
 			return err
 		}
 	}
@@ -297,7 +296,7 @@ func (msh *Mesh) ProcessLayer(ctx context.Context, layerID types.LayerID) error 
 
 	if !to.Before(from) {
 		if err := msh.pushLayersToState(ctx, from, to); err != nil {
-			logger.With().Error("failed to push layers to state", log.Err(err))
+			logger.With().Error("failed to push layers to conservativeState", log.Err(err))
 			return err
 		}
 		if err := msh.persistLayerHashes(ctx, from, to); err != nil {
@@ -397,7 +396,7 @@ func (msh *Mesh) pushLayersToState(ctx context.Context, from, to types.LayerID) 
 	logger := msh.WithContext(ctx).WithFields(
 		log.Stringer("from_layer", from),
 		log.Stringer("to_layer", to))
-	logger.Info("pushing layers to state")
+	logger.Info("pushing layers to conservativeState")
 	if from.Before(types.GetEffectiveGenesis()) || to.Before(types.GetEffectiveGenesis()) {
 		logger.Panic("tried to push genesis layers")
 		return nil
@@ -447,12 +446,12 @@ func (msh *Mesh) pushLayer(ctx context.Context, layerID types.LayerID) error {
 	}
 
 	if err = msh.updateStateWithLayer(ctx, layerID, applied); err != nil {
-		return fmt.Errorf("failed to update state %s: %w", layerID, err)
+		return fmt.Errorf("failed to update conservativeState %s: %w", layerID, err)
 	}
 
-	msh.Event().Info("end of layer state root",
+	msh.Event().Info("end of layer conservativeState root",
 		layerID,
-		log.Stringer("state_root", msh.state.GetStateRoot()),
+		log.Stringer("state_root", msh.cState.GetStateRoot()),
 	)
 
 	if err = msh.reInsertTxsToPool(applied, notApplied, layerID); err != nil {
@@ -464,9 +463,9 @@ func (msh *Mesh) pushLayer(ctx context.Context, layerID types.LayerID) error {
 // RevertState reverts to state as of a previous layer.
 func (msh *Mesh) revertState(ctx context.Context, layerID types.LayerID) error {
 	logger := msh.WithContext(ctx).WithFields(layerID)
-	logger.Info("attempting to roll back state to previous layer")
-	if _, err := msh.state.Rewind(layerID); err != nil {
-		return fmt.Errorf("failed to revert state to layer %v: %w", layerID, err)
+	logger.Info("attempting to roll back conservativeState to previous layer")
+	if _, err := msh.cState.Rewind(layerID); err != nil {
+		return fmt.Errorf("failed to revert conservativeState to layer %v: %w", layerID, err)
 	}
 	return nil
 }
@@ -476,66 +475,44 @@ func (msh *Mesh) reInsertTxsToPool(applied *types.Block, notApplied []*types.Blo
 	if applied != nil {
 		uniqueTxIds([]*types.Block{applied}, seenTxIds) // run for the side effect, updating seenTxIds
 	}
-	returnedTxs, missing := msh.GetTransactions(uniqueTxIds(notApplied, seenTxIds))
-	if len(missing) > 0 {
-		msh.With().Error("could not reinsert transactions", log.Int("missing", len(missing)), l)
-	}
-	if err := msh.markTransactionsDeleted(returnedTxs...); err != nil {
-		return err
-	}
-	for _, tx := range returnedTxs {
-		if err := msh.ValidateNonceAndBalance(tx); err != nil {
-			return err
+
+	txsToReinsert := uniqueTxIds(notApplied, seenTxIds)
+	for _, tid := range txsToReinsert {
+		mtx, err := msh.cState.GetMeshTransaction(tid)
+		if err != nil {
+			msh.With().Error("failed to get tx for reinserting", tid, log.Err(err))
+			return fmt.Errorf("get tx: %w", err)
 		}
-		if err := msh.AddTxToPool(tx); err == nil {
-			// We ignore errors here, since they mean that the tx is no longer
-			// valid and we shouldn't re-add it.
-			msh.With().Info("transaction from contextually invalid block re-added to mempool", tx.ID())
+		if err = msh.cState.AddTxToMempool(&mtx.Transaction, false); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func (msh *Mesh) applyState(block *types.Block) error {
-	var failedTxs []*types.Transaction
-	var svmErr error
 	rewardByMiner := map[types.Address]uint64{}
 	for _, r := range block.Rewards {
 		rewardByMiner[r.Address] += r.Amount
 	}
-	txs, missing := msh.GetTransactions(block.TxIDs)
-	if len(missing) > 0 {
-		return fmt.Errorf("could not find transactions %v from layer %v", missing, block.LayerIndex)
-	}
-	// TODO: should miner IDs be sorted in a deterministic order prior to applying rewards?
-	failedTxs, svmErr = msh.state.ApplyLayer(block.LayerIndex, txs, rewardByMiner)
-	if svmErr != nil {
+	failedTxs, err := msh.cState.ApplyLayer(block.LayerIndex, block.ID(), block.TxIDs, rewardByMiner)
+	if err != nil {
 		msh.With().Error("failed to apply transactions",
-			block.LayerIndex, log.Int("num_failed_txs", len(failedTxs)), log.Err(svmErr))
+			block.LayerIndex, log.Int("num_failed_txs", len(failedTxs)), log.Err(err))
 		// TODO: We want to panic here once we have a way to "remember" that we didn't apply these txs
 		//  e.g. persist the last layer transactions were applied from and use that instead of `oldVerified`
-		return fmt.Errorf("apply layer: %w", svmErr)
+		return fmt.Errorf("apply layer: %w", err)
 	}
 
 	if err := msh.DB.writeTransactionRewards(block.LayerIndex, block.Rewards); err != nil {
 		msh.With().Error("cannot write reward to db", log.Err(err))
 		return err
 	}
-
 	reportRewards(block)
 
-	if err := msh.updateDBTXWithBlockID(block, txs...); err != nil {
-		msh.With().Error("failed to update tx block ID in db", log.Err(err))
-		return err
-	}
-	for _, tx := range txs {
-		if err := transactions.Applied(msh.db, tx.ID()); err != nil {
-			return err
-		}
-	}
 	msh.With().Info("applied transactions",
 		block.LayerIndex,
-		log.Int("valid_block_txs", len(txs)),
+		log.Int("valid_block_txs", len(block.TxIDs)),
 		log.Int("num_failed_txs", len(failedTxs)),
 	)
 	return nil
@@ -570,7 +547,7 @@ func (msh *Mesh) ProcessLayerPerHareOutput(ctx context.Context, layerID types.La
 // apply the state for a single layer.
 func (msh *Mesh) updateStateWithLayer(ctx context.Context, layerID types.LayerID, block *types.Block) error {
 	if latest := msh.LatestLayerInState(); layerID != latest.Add(1) {
-		msh.WithContext(ctx).With().Panic("update state out-of-order",
+		msh.WithContext(ctx).With().Panic("update conservativeState out-of-order",
 			log.FieldNamed("verified", layerID),
 			log.FieldNamed("latest", latest))
 	}
@@ -619,8 +596,6 @@ func uniqueTxIds(blocks []*types.Block, seenTxIds map[types.TransactionID]struct
 	}
 	return txIds
 }
-
-var errLayerHasBallot = errors.New("layer has ballot")
 
 var errLayerHasBlock = errors.New("layer has block")
 
@@ -691,7 +666,7 @@ func (msh *Mesh) addTransactionsForBlock(logger log.Log, layerID types.LayerID, 
 
 func (msh *Mesh) invalidateFromPools(txIDs []types.TransactionID) {
 	for _, id := range txIDs {
-		msh.txPool.Invalidate(id)
+		msh.cState.Invalidate(id)
 	}
 }
 
@@ -704,7 +679,7 @@ func (msh *Mesh) storeTransactionsFromPool(layerID types.LayerID, blockID types.
 	}
 	txs := make([]*types.Transaction, 0, len(txIDs))
 	for _, txID := range txIDs {
-		tx, err := msh.txPool.Get(txID)
+		tx, err := msh.cState.GetMeshTransaction(txID)
 		if err != nil {
 			// if the transaction is not in the pool it could have been
 			// invalidated by another block
@@ -713,7 +688,7 @@ func (msh *Mesh) storeTransactionsFromPool(layerID types.LayerID, blockID types.
 			}
 			continue
 		}
-		txs = append(txs, tx)
+		txs = append(txs, &tx.Transaction)
 	}
 	if err := msh.writeTransactions(layerID, blockID, txs...); err != nil {
 		return fmt.Errorf("write tx: %w", err)

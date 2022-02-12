@@ -25,9 +25,6 @@ import (
 )
 
 const (
-	// ATXsPerBallotLimit indicates the maximum number of ATXs a Ballot can reference.
-	ATXsPerBallotLimit = 100
-
 	buildDurationErrorThreshold = 10 * time.Second
 )
 
@@ -51,13 +48,12 @@ type ProposalBuilder struct {
 
 	publisher          pubsub.Publisher
 	signer             *signing.EdSigner
-	txPool             txPool
+	cState             conservativeState
 	proposalDB         proposalDB
 	baseBallotProvider baseBallotProvider
 	proposalOracle     proposalOracle
 	beaconProvider     system.BeaconGetter
 	syncer             system.SyncStateProvider
-	projector          projector
 }
 
 // config defines configuration for the ProposalBuilder.
@@ -145,8 +141,7 @@ func NewProposalBuilder(
 	bbp baseBallotProvider,
 	beaconProvider system.BeaconGetter,
 	syncer system.SyncStateProvider,
-	projector projector,
-	txPool txPool,
+	cState conservativeState,
 	opts ...Opt,
 ) *ProposalBuilder {
 	sctx, cancel := context.WithCancel(ctx)
@@ -162,16 +157,11 @@ func NewProposalBuilder(
 		baseBallotProvider: bbp,
 		beaconProvider:     beaconProvider,
 		syncer:             syncer,
-		projector:          projector,
-		txPool:             txPool,
+		cState:             cState,
 	}
 
 	for _, opt := range opts {
 		opt(pb)
-	}
-
-	if pb.projector == nil {
-		pb.logger.Panic("nil projector")
 	}
 
 	if pb.proposalOracle == nil {
@@ -352,7 +342,7 @@ func (pb *ProposalBuilder) handleLayer(ctx context.Context, layerID types.LayerI
 
 	logger.With().Info("eligible for one or more proposals in layer", atxID, log.Int("num_proposals", len(proofs)))
 
-	txList, _, err := pb.txPool.SelectTopNTransactions(pb.cfg.txsPerProposal*len(proofs), pb.projector.GetProjection)
+	txList, _, err := pb.cState.SelectTXsForProposal(pb.cfg.txsPerProposal * len(proofs))
 	if err != nil {
 		logger.With().Error("failed to get txs for proposal", log.Err(err))
 		return fmt.Errorf("select TXs: %w", err)

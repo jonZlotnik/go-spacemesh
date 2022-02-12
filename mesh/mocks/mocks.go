@@ -35,18 +35,18 @@ func (m *Mockstate) EXPECT() *MockstateMockRecorder {
 	return m.recorder
 }
 
-// AddTxToPool mocks base method.
-func (m *Mockstate) AddTxToPool(tx *types.Transaction) error {
+// AddTxToMempool mocks base method.
+func (m *Mockstate) AddTxToMempool(tx *types.Transaction, checkValidity bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddTxToPool", tx)
+	ret := m.ctrl.Call(m, "AddTxToMempool", tx, checkValidity)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// AddTxToPool indicates an expected call of AddTxToPool.
-func (mr *MockstateMockRecorder) AddTxToPool(tx interface{}) *gomock.Call {
+// AddTxToMempool indicates an expected call of AddTxToMempool.
+func (mr *MockstateMockRecorder) AddTxToMempool(tx, checkValidity interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTxToPool", reflect.TypeOf((*Mockstate)(nil).AddTxToPool), tx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTxToMempool", reflect.TypeOf((*Mockstate)(nil).AddTxToMempool), tx, checkValidity)
 }
 
 // AddressExists mocks base method.
@@ -177,20 +177,6 @@ func (m *Mockstate) Rewind(layer types.LayerID) (types.Hash32, error) {
 func (mr *MockstateMockRecorder) Rewind(layer interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rewind", reflect.TypeOf((*Mockstate)(nil).Rewind), layer)
-}
-
-// ValidateNonceAndBalance mocks base method.
-func (m *Mockstate) ValidateNonceAndBalance(arg0 *types.Transaction) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ValidateNonceAndBalance", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ValidateNonceAndBalance indicates an expected call of ValidateNonceAndBalance.
-func (mr *MockstateMockRecorder) ValidateNonceAndBalance(arg0 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateNonceAndBalance", reflect.TypeOf((*Mockstate)(nil).ValidateNonceAndBalance), arg0)
 }
 
 // Mocktortoise is a mock of tortoise interface.
